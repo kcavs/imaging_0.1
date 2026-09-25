@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # 1. Set path to your extracted dataset folder
-data_dir = Path("C:/Users/kcavalli/OneDrive - South Orangetown Central School District/Image Classification/dataset")
+data_dir = Path("C:/Users/kcavalli/OneDrive - South Orangetown Central School District/Image Classification/tom_and_jerry")
 img_height, img_width = 128, 128
 batch_size = 32
 
