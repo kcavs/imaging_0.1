@@ -8,6 +8,6 @@ H = 224
 W = 224
 epochs = 5
 batch_size = 100
-SEED = 42
+seeds = 42
 from model import dataset
 dataset(IMAGE_DIR,H,W,batch_size)
