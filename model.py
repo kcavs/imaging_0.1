@@ -2,24 +2,23 @@ import tensorflow as tf
 from tensorflow.keras import datasets, layers, models
 import matplotlib.pyplot as plt
 from pathlib import Path
-class model:
+class Model:
     data_dir=None
     img_height, img_width = None, None
     batch_size = None
-    seed=None
+    seed=42
     # 1. Set path to your extracted dataset folder
-    def dataset(DIR,H,W,size,seeds):
-        data_dir = DIR
-        img_height, img_width = H, W
-        batch_size = size
-        seed=seeds
+    def __init__(self,DIR,H,W,size):
+        self.data_dir = DIR
+        self.img_height, self.img_width = H, W
+        self.batch_size = size
 
     # 2. Load training data (80%) and validation data (20%)
     train_ds = tf.keras.utils.image_dataset_from_directory(
         data_dir,
         validation_split=0.2,
         subset="training",
-        seed,
+        seed=seed,
         image_size=(img_height, img_width),
         batch_size=batch_size
     )
@@ -28,7 +27,7 @@ class model:
         data_dir,
         validation_split=0.2,
         subset="validation",
-        seed,
+        seed=seed,
         image_size=(img_height, img_width),
         batch_size=batch_size
     )
