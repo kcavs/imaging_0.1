@@ -1,35 +1,39 @@
 import tensorflow as tf
-from tensorflow.keras import datasets, layers, models
+from keras.models import Sequential
+from keras.layers import Dense
 import matplotlib.pyplot as plt
 from pathlib import Path
+from config import DataConfig
 class Model:
-    data_dir=None
-    img_height, img_width = None, None
-    batch_size = None
-    seed=42
+    dir: Path
+    img_height= None
+    img_width= None
+    batch_size= None
+    def data_config(self, data_dir:Path,H:int,W:int,size:int):
+         self.dir=data_dir
+         self.img_height= H
+         self.img_width = W
+         self.batch_size = size
+
     # 1. Set path to your extracted dataset folder
-    def __init__(self,DIR,H,W,size):
-        self.data_dir = DIR
-        self.img_height, self.img_width = H, W
-        self.batch_size = size
 
     # 2. Load training data (80%) and validation data (20%)
     train_ds = tf.keras.utils.image_dataset_from_directory(
-        data_dir,
+        directory=str(dir),
         validation_split=0.2,
         subset="training",
-        seed=seed,
+        seed=42,
         image_size=(img_height, img_width),
         batch_size=batch_size
     )
 
     val_ds = tf.keras.utils.image_dataset_from_directory(
-        data_dir,
+        config.data_dir,
         validation_split=0.2,
         subset="validation",
-        seed=seed,
-        image_size=(img_height, img_width),
-        batch_size=batch_size
+        seed=42,
+        image_size=(config.img_height, config.img_width),
+        batch_size=config.batch_size
     )
 
     class_names = train_ds.class_names

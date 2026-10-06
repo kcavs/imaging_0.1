@@ -1,5 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras import datasets, layers, models
+from keras.models import Sequential
+from keras.layers import Dense
 import matplotlib.pyplot as plt
 from pathlib import Path
 from model import Model
@@ -9,4 +10,4 @@ H = 224
 W = 224
 epochs = 5
 batch_size = 100
-model_1=Model(IMAGE_DIR,H,W,batch_size,seeds)
+model_1=Model(IMAGE_DIR,H,W,batch_size)
