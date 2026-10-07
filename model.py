@@ -1,37 +1,41 @@
 import tensorflow as tf
+import keras
+from keras import layers
+from keras import models
 from keras.models import Sequential
 from keras.layers import Dense
 import matplotlib.pyplot as plt
 from pathlib import Path
 from config import DataConfig
+import os
 class Model:
-    dir: Path
-    img_height= None
-    img_width= None
-    batch_size= None
-    def data_config(self, data_dir:Path,H:int,W:int,size:int):
-         self.dir=data_dir
-         self.img_height= H
-         self.img_width = W
-         self.batch_size = size
+    seed=42
+    def __init__(self, dirD, H, W, size):
+        global data_dir
+        self.data_dir= dirD
+        img_height= H
+        img_width = W
+        batch_size = size
 
     # 1. Set path to your extracted dataset folder
 
     # 2. Load training data (80%) and validation data (20%)
-    train_ds = tf.keras.utils.image_dataset_from_directory(
-        directory=str(dir),
-        validation_split=0.2,
-        subset="training",
-        seed=42,
-        image_size=(img_height, img_width),
-        batch_size=batch_size
-    )
+    def train(self):
+        train_ds = tf.keras.utils.image_dataset_from_directory(
+            
+            directory=str(self.data_dir),
+            validation_split=0.2,
+            subset="training",
+            seed=self.seed,
+            image_size=(self.img_height, self.img_width),
+            batch_size=self.batch_size
+        )
 
     val_ds = tf.keras.utils.image_dataset_from_directory(
         config.data_dir,
         validation_split=0.2,
         subset="validation",
-        seed=42,
+        seed=seed,
         image_size=(config.img_height, config.img_width),
         batch_size=config.batch_size
     )
