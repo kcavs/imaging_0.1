@@ -15,3 +15,6 @@ W = 224
 epochs = 5
 batch_size = 100
 model_1=Model(IMAGE_DIR,H,W,batch_size)
+model_1.train()
+model_1.val()
+model_1.comp()
