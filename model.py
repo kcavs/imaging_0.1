@@ -18,7 +18,6 @@ class Model:
         self.img_height= H
         self.img_width = W
         self.batch_size = size
-
     # 1. Set path to your extracted dataset folder
 
     # 2. Load training data (80%) and validation data (20%)
@@ -77,3 +76,6 @@ class Model:
         # 7. Save the trained model
         model.save("demo_model.keras")
         print("Model training complete and saved!")
+    def predict(self,data, steps):
+        preds= self.predict(data, steps)
+        return preds
