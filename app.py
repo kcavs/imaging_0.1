@@ -16,12 +16,23 @@ test_dataset = tf.keras.utils.image_dataset_from_directory(
     batch_size=4,
     shuffle=False
 )
+categories = test_dataset.class_names
 # 2. Run predict on the dataset
-predictions = model.predict(test_dataset, steps=1)
-categories = ["Cat", "Dog"]  # Match your class labels
-predicted_classes = np.argmax(
-    predictions, axis=1
-)  # Or use int(prediction) for binary
+predictions = model.predict(test_dataset, steps=1) 
+ # Match your class labels
+predicted_classes = (predictions > 0.5).astype("int32").flatten()
+true_labels = np.concatenate([y for x, y in test_dataset.take(1)], axis=0)
 
-for pred_idx in predicted_classes:
-    print(f"Predicted Class: {categories[pred_idx]}")
+print("\n--- AI Model Prediction Results ---")
+for i, pred_idx in enumerate(predicted_classes):
+    true_idx = true_labels[i]
+    
+    print(f"Image {i+1}:")
+    print(f"  Predicted Class: {categories[pred_idx]}")
+    print(f"  Actual Class:    {categories[true_idx]}")
+    if predictions.shape[-1] > 1:
+        print(f"  Confidence:      {predictions[i][pred_idx]:.2%}")
+    else:
+        conf = predictions[i][0] if pred_idx == 1 else 1 - predictions[i][0]
+        print(f"  Confidence:      {conf:.2%}")
+    print("-" * 30)
