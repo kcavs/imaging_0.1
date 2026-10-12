@@ -8,13 +8,20 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from model import Model
 import os
-print("Tensorflow version: ", tf.__version__)
-IMAGE_DIR = Path("C:/Users/kcavalli/OneDrive - South Orangetown Central School District/Image Classification/dogs_cats")
-H = 224
-W = 224
-epochs = 5
-batch_size = 100
-model_1=Model(IMAGE_DIR,H,W,batch_size)
-model_1.train()
-model_1.val()
-model_1.comp()
+import numpy as np
+from train import model
+# 1. Load your directory as a tf.data.Dataset
+test_dataset = tf.keras.utils.image_dataset_from_directory(
+    model.data_dir,
+    batch_size=4,
+    shuffle=False
+)
+# 2. Run predict on the dataset
+predictions = model.predict(test_dataset, steps=1)
+categories = ["Cat", "Dog"]  # Match your class labels
+predicted_classes = np.argmax(
+    predictions, axis=1
+)  # Or use int(prediction) for binary
+
+for pred_idx in predicted_classes:
+    print(f"Predicted Class: {categories[pred_idx]}")
