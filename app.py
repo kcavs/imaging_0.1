@@ -16,23 +16,31 @@ test_dataset = tf.keras.utils.image_dataset_from_directory(
     batch_size=4,
     shuffle=False
 )
+num_images=5
 categories = test_dataset.class_names
-# 2. Run predict on the dataset
-predictions = model.predict(test_dataset, steps=1) 
- # Match your class labels
-predicted_classes = (predictions > 0.5).astype("int32").flatten()
-true_labels = np.concatenate([y for x, y in test_dataset.take(1)], axis=0)
-
+run_dataset=(
+    test_dataset.unbatch()
+    .shuffle(buffer_size=1000, seed=42)
+    .take(num_images)
+)
+eval_steps=1
+images=[]
+true_labels=[]
+for img, lbl in run_dataset:
+    images.append(img.numpy())
+    true_labels.append(lbl.numpy())
+images=np.array(images)
+true_labels=np.array(true_labels)
+predictions = model.predict(images, steps=eval_steps) 
+predicted_classes=np.argmax(predictions, axis=-1).flatten().astype(int)
+true_labels = true_labels.flatten().astype(int)
 print("\n--- AI Model Prediction Results ---")
-for i, pred_idx in enumerate(predicted_classes):
+num_matches = min(len(predicted_classes), len(true_labels))
+for i in range(num_matches):
+    p_idx=predicted_classes[i]
     true_idx = true_labels[i]
-    
+    t_idx=int(true_idx)
     print(f"Image {i+1}:")
-    print(f"  Predicted Class: {categories[pred_idx]}")
-    print(f"  Actual Class:    {categories[true_idx]}")
-    if predictions.shape[-1] > 1:
-        print(f"  Confidence:      {predictions[i][pred_idx]:.2%}")
-    else:
-        conf = predictions[i][0] if pred_idx == 1 else 1 - predictions[i][0]
-        print(f"  Confidence:      {conf:.2%}")
+    print(f"  Predicted Class: {categories[p_idx]}")
+    print(f"  Actual Class:    {categories[t_idx]}")
     print("-" * 30)
