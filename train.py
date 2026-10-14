@@ -9,7 +9,7 @@ from pathlib import Path
 from model import Model
 import os
 print("Tensorflow version: ", tf.__version__)
-IMAGE_DIR = Path('/Users/kcavalli/Library/CloudStorage/OneDrive-SouthOrangetownCentralSchoolDistrict/Image Classification/dogs_cats')
+IMAGE_DIR = Path("C:\\Users\kcavalli\\OneDrive - South Orangetown Central School District\\Image Classification\\dogs_cats")
 H = 224
 W = 224
 epochs = 5
@@ -19,5 +19,5 @@ model=Model(IMAGE_DIR,H,W,batch_size)
 model.train()
 model.val()
 model.comp()
-
+model.fit(10)
 

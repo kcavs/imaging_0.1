@@ -10,7 +10,7 @@ from model import Model
 import os
 import numpy as np
 from train import model
-# 1. Load your directory as a tf.data.Dataset
+
 test_dataset = tf.keras.utils.image_dataset_from_directory(
     model.data_dir,
     batch_size=4,
