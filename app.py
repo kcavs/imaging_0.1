@@ -16,13 +16,15 @@ test_dataset = tf.keras.utils.image_dataset_from_directory(
     batch_size=4,
     shuffle=False 
 )
+
 num_images=5
 categories = test_dataset.class_names
 run_dataset=(
     test_dataset.unbatch()
-    .shuffle(buffer_size=1000, seed=42)
+    .shuffle(buffer_size=1000)
     .take(num_images)
 )
+
 eval_steps=1
 images=[]
 true_labels=[]
@@ -32,9 +34,11 @@ for img, lbl in run_dataset:
 images=np.array(images)
 true_labels=np.array(true_labels)
 images = tf.image.resize(images, (224,224))
+
 predictions = model.predict(images, steps=eval_steps) 
 predicted_classes=np.argmax(predictions, axis=-1).flatten().astype(int)
 true_labels = true_labels.flatten().astype(int)
+
 print("\n--- AI Model Prediction Results ---")
 num_matches = min(len(predicted_classes), len(true_labels))
 for i in range(num_matches):
@@ -45,4 +49,5 @@ for i in range(num_matches):
     print(f"  Predicted Class: {categories[p_idx]}")
     print(f"  Actual Class:    {categories[t_idx]}")
     print("-" * 30)
+
 model.grad_cam(images)

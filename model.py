@@ -22,9 +22,7 @@ class Model:
         self.img_width = W
         self.batch_size = size
         self.keras_model= None
-    # 1. Set path to your extracted dataset folder
 
-    # 2. Load training data (80%) and validation data (20%)
     def train(self):
         global train_ds
         self.train_ds = tf.keras.utils.image_dataset_from_directory(
@@ -34,10 +32,11 @@ class Model:
             seed=self.seed,
             image_size=(self.img_height, self.img_width),
             batch_size=self.batch_size,
-            label_mode='binary',  
+            label_mode='categorical',  
             shuffle=True     
         )
-
+        self.train_ds = self.train_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
+        
     def val(self):
         global val_ds
         self.val_ds = tf.keras.utils.image_dataset_from_directory(
@@ -47,13 +46,17 @@ class Model:
             seed=self.seed,
             image_size=(self.img_height, self.img_width),
             batch_size=self.batch_size,
-            label_mode='binary',  
+            label_mode='categorical',  
             shuffle=True     
-    )
+        )
+        self.val_ds = self.val_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
     
     def comp(self):
         self.keras_model = Sequential([
             layers.Rescaling(1./255),
+            layers.RandomFlip("horizontal_and_vertical"),
+            layers.RandomRotation(0.2),
+            layers.RandomZoom(0.2),
 
             layers.Conv2D(32, (3, 3), activation='relu'),
             layers.BatchNormalization(),
@@ -71,10 +74,9 @@ class Model:
             layers.Dropout(0.5),
             layers.Dense(2) 
         ])
-        self.keras_model.compile(optimizer='adam', loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        self.keras_model.compile(optimizer='adam', loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
             metrics=['accuracy'] )
 
-    # ADD THIS MISSING METHOD TO FIX YOUR ERROR
     def predict(self, data, steps=1):
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet. Run model.comp() first!")
@@ -83,8 +85,7 @@ class Model:
     def fit(self, epochs):
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet. Run model.comp() first!")
-            
-        # This trains the model and outputs the live accuracy metrics
+
         history = self.keras_model.fit(
             self.train_ds,
             validation_data=self.val_ds,
@@ -97,7 +98,7 @@ class Model:
             raise ValueError("The neural network hasn't been compiled yet!")
         last_layer_name = None
         for layer in reversed(self.keras_model.layers):
-            if "Conv2D" in layer.__class__.__name__:  # Simple, reliable string check
+            if "Conv2D" in layer.__class__.__name__: 
                 last_layer_name = layer.name
                 break
                 
@@ -107,63 +108,50 @@ class Model:
         last_layer = self.keras_model.get_layer(last_layer_name)
 
         grad_model = tf.keras.models.Model(
-            inputs=[self.keras_model.layers[0].input],  # Access input layer node directly
-            outputs=[last_layer.output, self.keras_model.layers[-1].output]  # Explicit final Dense layer output
+            inputs=[self.keras_model.layers[0].input], 
+            outputs=[last_layer.output, self.keras_model.layers[-1].output]  
         )
 
         with tf.GradientTape() as tape:
             conv_outputs, predictions = grad_model(imgs)
             pred_indices = tf.argmax(predictions, axis=-1)
-            # Gather the predicted class channel scores for the batch
             batch_indices = tf.range(tf.shape(predictions)[0])
             indices = tf.stack([batch_indices, tf.cast(pred_indices, tf.int32)], axis=1)
             class_channels = tf.gather_nd(predictions, indices)
 
-        # 4. Extract gradients of the top predicted classes w.r.t the last conv layer outputs
         grads = tape.gradient(class_channels, conv_outputs)
-
-        # 5. Global average pooling across height and width for each feature map channel
         pooled_grads = tf.reduce_mean(grads, axis=(1, 2))
 
-        # 6. Set up the matplotlib grid dynamically based on the batch size
         num_imgs = len(imgs)
         fig, axes = plt.subplots(1, num_imgs, figsize=(4 * num_imgs, 4))
         if num_imgs == 1:
-            axes = [axes] # Handle single image subplot object edge-case
+            axes = [axes] 
 
-        # 7. Loop through each image in the batch to overlay heatmaps
         for idx in range(num_imgs):
-            # Compute heatmap for this individual image
             img_conv_outputs = conv_outputs[idx]
             img_pooled_grads = pooled_grads[idx]
             
-            # Weighted sum of feature channels
             heatmap = img_conv_outputs @ img_pooled_grads[..., tf.newaxis]
             heatmap = tf.squeeze(heatmap)
 
-            # Apply ReLU and normalize
             heatmap = tf.maximum(heatmap, 0)
             max_val = tf.math.reduce_max(heatmap)
             if max_val == 0: 
-                max_val = 1e-10 # Avoid division by zero if heatmap is entirely black
+                max_val = 1e-10 
             heatmap = (heatmap / max_val).numpy()
 
-            # Process original image for OpenCV overlay
             img_raw = imgs[idx].numpy() if hasattr(imgs[idx], 'numpy') else imgs[idx]
             if img_raw.max() <= 1.0:
                 img_raw = (img_raw * 255).astype(np.uint8)
             else:
                 img_raw = img_raw.astype(np.uint8)
 
-            # Resize and map color
             heatmap_resized = cv2.resize(heatmap, (img_raw.shape[1], img_raw.shape[0]))
             heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
 
-            # Blend heatmap overlay with original image
             superimposed_img = heatmap_color * intensity + img_raw
             superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
 
-            # Render to subplot
             axes[idx].imshow(cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB))
             axes[idx].set_title(f"Img {idx+1} (Pred: {pred_indices[idx].numpy()})", fontsize=10)
             axes[idx].axis('off')

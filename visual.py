@@ -11,3 +11,4 @@ import os
 from model import Model
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
