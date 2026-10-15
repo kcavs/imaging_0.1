@@ -31,6 +31,7 @@ for img, lbl in run_dataset:
     true_labels.append(lbl.numpy())
 images=np.array(images)
 true_labels=np.array(true_labels)
+images = tf.image.resize(images, (224,224))
 predictions = model.predict(images, steps=eval_steps) 
 predicted_classes=np.argmax(predictions, axis=-1).flatten().astype(int)
 true_labels = true_labels.flatten().astype(int)

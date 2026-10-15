@@ -9,7 +9,10 @@ from pathlib import Path
 from model import Model
 import os
 print("Tensorflow version: ", tf.__version__)
-IMAGE_DIR = Path("C:\\Users\kcavalli\\OneDrive - South Orangetown Central School District\\Image Classification\\dogs_cats")
+#school comp
+#IMAGE_DIR = Path("C:\\Users\kcavalli\\OneDrive - South Orangetown Central School District\\Image Classification\\dogs_cats")
+#mac
+IMAGE_DIR = Path('/Users/kcavalli/Library/CloudStorage/OneDrive-SouthOrangetownCentralSchoolDistrict/Image Classification/dogs_cats')
 H = 224
 W = 224
 epochs = 5

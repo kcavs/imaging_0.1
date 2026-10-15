@@ -47,13 +47,14 @@ class Model:
     
     def comp(self):
         self.keras_model = Sequential([
-            layers.Rescaling(1./255, input_shape=(self.img_height, self.img_width, 3)),
+            layers.Rescaling(1./255),
             layers.Conv2D(32, (3, 3), activation='relu'),
             layers.MaxPooling2D(pool_size=(2, 2)),
             layers.Conv2D(64, (3, 3), activation='relu'),
             layers.MaxPooling2D(pool_size=(2, 2)),
             layers.Conv2D(128, (3, 3), activation='relu'),
             layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.Flatten(),
             layers.Dense(2) 
         ])
         self.keras_model.compile(optimizer='adam', loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
