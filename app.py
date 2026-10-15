@@ -14,7 +14,7 @@ from train import model
 test_dataset = tf.keras.utils.image_dataset_from_directory(
     model.data_dir,
     batch_size=4,
-    shuffle=False
+    shuffle=False 
 )
 num_images=5
 categories = test_dataset.class_names
