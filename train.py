@@ -23,4 +23,3 @@ model.train()
 model.val()
 model.comp()
 model.fit(10)
-

@@ -45,3 +45,4 @@ for i in range(num_matches):
     print(f"  Predicted Class: {categories[p_idx]}")
     print(f"  Actual Class:    {categories[t_idx]}")
     print("-" * 30)
+model.grad_cam(images)
