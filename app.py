@@ -8,7 +8,7 @@ import numpy as np
 from train import model
 
 test_dataset = tf.keras.utils.image_dataset_from_directory(
-    model.data_dir,
+    str(Path(model.data_dir)/'test'),
     image_size=(224, 224), 
     batch_size=32,         
     label_mode='categorical',

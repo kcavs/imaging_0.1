@@ -24,10 +24,9 @@ class Model:
         self.keras_model= None
 
     def train(self):
+        train_path=Path(self.data_dir)/'train'
         raw_train_ds = tf.keras.utils.image_dataset_from_directory(
-            directory=str(self.data_dir),
-            validation_split=0.2,
-            subset="training",
+            directory=str(train_path),
             seed=self.seed,
             image_size=(self.img_height, self.img_width),
             batch_size=self.batch_size,
@@ -35,23 +34,13 @@ class Model:
             shuffle=True     
         )
         self.class_names = raw_train_ds.class_names
-        # self.train_ds = tf.keras.utils.image_dataset_from_directory(
-        #     directory=str(self.data_dir),
-        #     validation_split=0.2,
-        #     subset="training",
-        #     seed=self.seed,
-        #     image_size=(self.img_height, self.img_width),
-        #     batch_size=self.batch_size,
-        #     label_mode='categorical',  
-        #     shuffle=True     
-        # )
+
         self.train_ds = raw_train_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
         
     def val(self):
+        val_path=Path(self.data_dir)/'val'
         self.val_ds = tf.keras.utils.image_dataset_from_directory(
-            directory=str(self.data_dir),
-            validation_split=0.2,
-            subset="validation",
+            directory=str(val_path),
             seed=self.seed,
             image_size=(self.img_height, self.img_width),
             batch_size=self.batch_size,
@@ -107,24 +96,29 @@ class Model:
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet. Run model.comp() first!")
 
-        print("Extracting exact alphanumeric class mapping from Keras Dataset...")
+        print("Extracting exact alphanumeric class mapping...")
         class_names = self.class_names
         print(f"Keras Class Mapping Order: {class_names}")
-        y_train= []
-        for class_idx, class_name in enumerate(class_names):
-            class_path = Path(self.data_dir) / class_name
+
+        class_counts = []
+        for class_name in class_names:
+            class_path = Path(self.data_dir) / "train" / class_name
             num_images = len(list(class_path.glob('*')))
-            y_train.extend([class_idx] * num_images)
+            class_counts.append(num_images)
             
-        y_train = np.array(y_train)
-        classes = np.unique(y_train)
-        weights = compute_class_weight(
-            class_weight='balanced', 
-            classes=classes, 
-            y=y_train
-        )
-        class_weight_dict = dict(zip(classes, weights))
-        print(f"Perfected Class Weights: {class_weight_dict}")
+            
+        total_samples = sum(class_counts)
+        num_classes = len(class_names)
+
+        class_weight_dict = {}
+        for class_idx, count in enumerate(class_counts):
+            if count > 0:
+                weight = total_samples / (num_classes * count)
+            else:
+                weight = 1.0  
+            class_weight_dict[int(class_idx)] = float(weight)
+
+        print(f"Perfected Class Weights (Native Call): {class_weight_dict}")
 
         history = self.keras_model.fit(
             self.train_ds,
@@ -133,7 +127,8 @@ class Model:
             class_weight=class_weight_dict  
         )
         return history
-    
+
+
     def grad_cam(self, imgs, intensity=0.5, res=250):
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet!")
