@@ -11,6 +11,7 @@ import numpy as np
 import cv2
 from keras import mixed_precision
 from sklearn.utils.class_weight import compute_class_weight
+
 mixed_precision.set_global_policy('mixed_float16')
 
 class Model:
@@ -23,7 +24,7 @@ class Model:
         self.keras_model= None
 
     def train(self):
-        self.train_ds = tf.keras.utils.image_dataset_from_directory(
+        raw_train_ds = tf.keras.utils.image_dataset_from_directory(
             directory=str(self.data_dir),
             validation_split=0.2,
             subset="training",
@@ -33,8 +34,18 @@ class Model:
             label_mode='categorical',  
             shuffle=True     
         )
-        
-        self.train_ds = self.train_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
+        self.class_names = raw_train_ds.class_names
+        # self.train_ds = tf.keras.utils.image_dataset_from_directory(
+        #     directory=str(self.data_dir),
+        #     validation_split=0.2,
+        #     subset="training",
+        #     seed=self.seed,
+        #     image_size=(self.img_height, self.img_width),
+        #     batch_size=self.batch_size,
+        #     label_mode='categorical',  
+        #     shuffle=True     
+        # )
+        self.train_ds = raw_train_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
         
     def val(self):
         self.val_ds = tf.keras.utils.image_dataset_from_directory(
@@ -50,44 +61,36 @@ class Model:
         self.val_ds = self.val_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
     
     def comp(self):
-        # Explicitly define a stable optimizer with a lower learning rate
         stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-4)
 
         self.keras_model = Sequential([
             layers.Input(shape=(self.img_height, self.img_width, 3)),
             layers.Rescaling(1./255),
-            
-            # 1. Moderated Data Augmentation
+
             layers.RandomFlip("horizontal_and_vertical"),
             layers.RandomRotation(0.1),
             layers.RandomZoom(0.1),
 
-            # Conv Block 1
             layers.Conv2D(32, (3, 3), padding='same', activation='relu'),
             layers.BatchNormalization(),
             layers.MaxPooling2D(pool_size=(2, 2)),
 
-            # Conv Block 2
             layers.Conv2D(64, (3, 3), padding='same', activation='relu'),
             layers.BatchNormalization(),
             layers.MaxPooling2D(pool_size=(2, 2)),
 
-            # Conv Block 3
             layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
             layers.BatchNormalization(),
             layers.MaxPooling2D(pool_size=(2, 2)),
 
-            # Classification Head
             layers.Flatten(),
             layers.Dense(128, activation='relu'),
             layers.Dropout(0.5),
-            
-            # 2. FIX: Structural Separation for Mixed Precision
+
             layers.Dense(3, name='logits'), 
             layers.Activation('softmax', dtype='float32', name='softmax_output') 
         ])
 
-        # 3. FIX: Switch CategoricalCrossentropy to from_logits=False since we use an explicit Softmax layer
         self.keras_model.compile(
             optimizer=stable_adam, 
             loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
@@ -104,20 +107,16 @@ class Model:
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet. Run model.comp() first!")
 
-        print("Calculating class weights instantly from folder names...")
-        
-        class_names = sorted([f.name for f in Path(self.data_dir).iterdir() if f.is_dir()])
-        
-        y_train = []
-        
+        print("Extracting exact alphanumeric class mapping from Keras Dataset...")
+        class_names = self.class_names
+        print(f"Keras Class Mapping Order: {class_names}")
+        y_train= []
         for class_idx, class_name in enumerate(class_names):
             class_path = Path(self.data_dir) / class_name
-           
             num_images = len(list(class_path.glob('*')))
             y_train.extend([class_idx] * num_images)
             
         y_train = np.array(y_train)
-
         classes = np.unique(y_train)
         weights = compute_class_weight(
             class_weight='balanced', 
@@ -125,7 +124,7 @@ class Model:
             y=y_train
         )
         class_weight_dict = dict(zip(classes, weights))
-        print(f"Applied Class Weights: {class_weight_dict}")
+        print(f"Perfected Class Weights: {class_weight_dict}")
 
         history = self.keras_model.fit(
             self.train_ds,

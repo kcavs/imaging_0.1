@@ -1,9 +1,5 @@
 import tensorflow as tf
 import keras
-from keras import layers
-from keras import models
-from keras.models import Sequential
-from keras.layers import Dense
 import matplotlib.pyplot as plt
 from pathlib import Path
 from model import Model
@@ -13,38 +9,30 @@ from train import model
 
 test_dataset = tf.keras.utils.image_dataset_from_directory(
     model.data_dir,
-    batch_size=4,
-    shuffle=False 
+    image_size=(224, 224), 
+    batch_size=32,         
+    label_mode='categorical',
+    shuffle=True,          
+    seed=model.seed
 )
 
-num_images=5
 categories = test_dataset.class_names
-run_dataset=(
-    test_dataset.unbatch()
-    .shuffle(buffer_size=1000)
-    .take(num_images)
-)
 
-eval_steps=1
-images=[]
-true_labels=[]
-for img, lbl in run_dataset:
-    images.append(img.numpy())
-    true_labels.append(lbl.numpy())
-images=np.array(images)
-true_labels=np.array(true_labels)
-images = tf.image.resize(images, (224,224))
+for img_batch, lbl_batch in test_dataset.take(1):
+    images = img_batch[:5]       
+    true_labels = lbl_batch[:5]   
+    break
 
-predictions = model.predict(images, steps=eval_steps) 
-predicted_classes=np.argmax(predictions, axis=-1).flatten().astype(int)
-true_labels = true_labels.flatten().astype(int)
+predictions = model.predict(images) 
+
+predicted_classes = np.argmax(predictions, axis=-1)
+actual_classes = np.argmax(true_labels.numpy(), axis=-1)
 
 print("\n--- AI Model Prediction Results ---")
-num_matches = min(len(predicted_classes), len(true_labels))
-for i in range(num_matches):
-    p_idx=predicted_classes[i]
-    true_idx = true_labels[i]
-    t_idx=int(true_idx)
+for i in range(len(predicted_classes)):
+    p_idx = predicted_classes[i]
+    t_idx = actual_classes[i]
+    
     print(f"Image {i+1}:")
     print(f"  Predicted Class: {categories[p_idx]}")
     print(f"  Actual Class:    {categories[t_idx]}")
