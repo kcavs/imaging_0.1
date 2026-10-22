@@ -12,7 +12,7 @@ import cv2
 from keras import mixed_precision
 from sklearn.utils.class_weight import compute_class_weight
 
-mixed_precision.set_global_policy('mixed_float16')
+mixed_precision.set_global_policy('float32')
 
 class Model:
     seed=42
@@ -34,56 +34,83 @@ class Model:
             shuffle=True     
         )
         self.class_names = raw_train_ds.class_names
-
-        self.train_ds = raw_train_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
+        print(f"Found {len(self.class_names)} target classes: {self.class_names}")
+        if len(self.class_names) != 3:
+            raise ValueError(f"CRITICAL: Found {len(self.class_names)} folders instead of 3! Check for hidden folders.")
+        self.train_ds = raw_train_ds.prefetch(buffer_size=tf.data.AUTOTUNE)
         
     def val(self):
-        val_path=Path(self.data_dir)/'val'
-        self.val_ds = tf.keras.utils.image_dataset_from_directory(
-            directory=str(val_path),
-            seed=self.seed,
-            image_size=(self.img_height, self.img_width),
-            batch_size=self.batch_size,
-            label_mode='categorical',  
-            shuffle=False     
-        )
-        self.val_ds = self.val_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
-    
+        val_path = Path(self.data_dir) / 'val' 
+        raw_val_ds = tf.keras.utils.image_dataset_from_directory( 
+            directory=str(val_path), 
+            seed=self.seed, 
+            image_size=(self.img_height, self.img_width), 
+            batch_size=self.batch_size, 
+            label_mode='categorical', 
+            shuffle=True 
+        ) 
+        val_classes = raw_val_ds.class_names
+        if len(val_classes) != 3:
+            raise ValueError(f"CRITICAL: Validation found {len(val_classes)} folders instead of 3!")
+
+        self.val_ds = raw_val_ds.prefetch(buffer_size=tf.data.AUTOTUNE)
     def comp(self):
-        stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-4)
+        from keras import mixed_precision
+        mixed_precision.set_global_policy('float32')
+        ultra_stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-5)
+        crop_h=int(self.img_height*0.85)
+        crop_w=int(self.img_width*0.85)
 
-        self.keras_model = Sequential([
-            layers.Input(shape=(self.img_height, self.img_width, 3)),
-            layers.Rescaling(1./255),
+        inputs = layers.Input(shape=(self.img_height, self.img_width, 3))
 
-            layers.RandomFlip("horizontal_and_vertical"),
-            layers.RandomRotation(0.1),
-            layers.RandomZoom(0.1),
+        x = layers.CenterCrop(height=crop_h, width=crop_w)(inputs)
+        x = layers.RandomFlip("horizontal")(x)
+        x = layers.RandomRotation(0.02)(x)
+        x = layers.Rescaling(1./255)(x)
 
-            layers.Conv2D(32, (3, 3), padding='same', activation='relu'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D(pool_size=(2, 2)),
+        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu')(x)
+        x1 = layers.BatchNormalization()(x1)
+        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu')(x1)
+        x1 = layers.BatchNormalization()(x1)
+        shortcut1 = layers.Conv2D(32, (1, 1), padding='same')(x)
+        x = layers.add([x1, shortcut1])
+        x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-            layers.Conv2D(64, (3, 3), padding='same', activation='relu'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D(pool_size=(2, 2)),
+        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu')(x)
+        x2 = layers.BatchNormalization()(x2)
+        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu')(x2)
+        x2 = layers.BatchNormalization()(x2)
+        shortcut2 = layers.Conv2D(64, (1, 1), padding='same')(x)
+        x = layers.add([x2, shortcut2])
+        x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-            layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
-            layers.BatchNormalization(),
-            layers.MaxPooling2D(pool_size=(2, 2)),
+        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu')(x)
+        x3 = layers.BatchNormalization()(x3)
+        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu')(x3)
+        x3 = layers.BatchNormalization()(x3)
+        shortcut3 = layers.Conv2D(128, (1, 1), padding='same')(x)
+        x = layers.add([x3, shortcut3])
+        x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-            layers.Flatten(),
-            layers.Dense(128, activation='relu'),
-            layers.Dropout(0.5),
+        x = layers.Flatten()(x)
+        x = layers.Dense(128, activation='relu')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.5)(x)
+        
+        logits = layers.Dense(3, name='logits')(x)
+        outputs = layers.Activation('softmax', dtype='float32', name='softmax_output')(logits)
 
-            layers.Dense(3, name='logits'), 
-            layers.Activation('softmax', dtype='float32', name='softmax_output') 
-        ])
+        self.keras_model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
-        self.keras_model.compile(
-            optimizer=stable_adam, 
-            loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
-            metrics=['accuracy']
+        stable_loss = tf.keras.losses.CategoricalCrossentropy(
+            from_logits=False,
+            label_smoothing=0.1
+        )
+        
+        self.keras_model.compile( 
+            optimizer=ultra_stable_adam, 
+            loss=stable_loss, 
+            metrics=['accuracy'] 
         )
 
 
@@ -132,6 +159,7 @@ class Model:
     def grad_cam(self, imgs, intensity=0.5, res=250):
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet!")
+        
         last_layer_name = None
         for layer in reversed(self.keras_model.layers):
             if "Conv2D" in layer.__class__.__name__: 
@@ -143,10 +171,10 @@ class Model:
         
         last_layer = self.keras_model.get_layer(last_layer_name)
 
-        grad_model = tf.keras.models.Model(
-            inputs=[self.keras_model.layers[0].input], 
-            outputs=[last_layer.output, self.keras_model.get_layer('logits').output]  
-        )
+        grad_model = tf.keras.models.Model( 
+            inputs=[self.keras_model.input], 
+            outputs=[last_layer.output, self.keras_model.get_layer('logits').output] 
+        ) 
 
         with tf.GradientTape() as tape:
             conv_outputs, predictions = grad_model(imgs)
@@ -175,9 +203,6 @@ class Model:
             if max_val == 0: 
                 max_val = 1e-10 
            
-            heatmap = (heatmap / max_val).numpy()
-            heatmap = heatmap.astype(np.float32)  
-
             heatmap = (heatmap / max_val).numpy()
             heatmap = heatmap.astype(np.float32)  
             
