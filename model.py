@@ -57,7 +57,7 @@ class Model:
     def comp(self):
         from keras import mixed_precision
         mixed_precision.set_global_policy('float32')
-        ultra_stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-5)
+        ultra_stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-3)
         crop_h=int(self.img_height*0.85)
         crop_w=int(self.img_width*0.85)
 
@@ -92,7 +92,7 @@ class Model:
         x = layers.add([x3, shortcut3])
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-        x = layers.Flatten()(x)
+        x = layers.GlobalAveragePooling2D()(x)
         x = layers.Dense(128, activation='relu')(x)
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.5)(x)
@@ -104,7 +104,7 @@ class Model:
 
         stable_loss = tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
-            label_smoothing=0.1
+            label_smoothing=0.05
         )
         
         self.keras_model.compile( 
