@@ -57,38 +57,38 @@ class Model:
     def comp(self):
         from keras import mixed_precision
         mixed_precision.set_global_policy('float32')
-        ultra_stable_adam = tf.keras.optimizers.Adam(learning_rate=1e-3)
+        ultra_stable_adam = tf.keras.optimizers.Adam(learning_rate=5e-5)
         crop_h=int(self.img_height*0.85)
         crop_w=int(self.img_width*0.85)
 
-        inputs = layers.Input(shape=(self.img_height, self.img_width, 3))
+        inputs = layers.Input(shape=(self.img_height, self.img_width, 3), name='input_layer')
 
         x = layers.CenterCrop(height=crop_h, width=crop_w)(inputs)
         x = layers.RandomFlip("horizontal")(x)
         x = layers.RandomRotation(0.02)(x)
         x = layers.Rescaling(1./255)(x)
 
-        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu')(x)
+        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu', kernel_initializer='he_normal')(x)
         x1 = layers.BatchNormalization()(x1)
-        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu')(x1)
+        x1 = layers.Conv2D(32, (3, 3), padding='same', activation='relu', kernel_initializer='he_normal')(x1)
         x1 = layers.BatchNormalization()(x1)
-        shortcut1 = layers.Conv2D(32, (1, 1), padding='same')(x)
+        shortcut1 = layers.Conv2D(32, (1, 1), padding='same',kernel_initializer='he_normal')(x)
         x = layers.add([x1, shortcut1])
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu')(x)
+        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu',kernel_initializer='he_normal')(x)
         x2 = layers.BatchNormalization()(x2)
-        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu')(x2)
+        x2 = layers.Conv2D(64, (3, 3), padding='same', activation='relu',kernel_initializer='he_normal')(x2)
         x2 = layers.BatchNormalization()(x2)
-        shortcut2 = layers.Conv2D(64, (1, 1), padding='same')(x)
+        shortcut2 = layers.Conv2D(64, (1, 1), padding='same',kernel_initializer='he_normal')(x)
         x = layers.add([x2, shortcut2])
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
-        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu')(x)
+        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu',kernel_initializer='he_normal')(x)
         x3 = layers.BatchNormalization()(x3)
-        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu')(x3)
+        x3 = layers.Conv2D(128, (3, 3), padding='same', activation='relu',kernel_initializer='he_normal')(x3)
         x3 = layers.BatchNormalization()(x3)
-        shortcut3 = layers.Conv2D(128, (1, 1), padding='same')(x)
+        shortcut3 = layers.Conv2D(128, (1, 1), padding='same',kernel_initializer='he_normal')(x)
         x = layers.add([x3, shortcut3])
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
@@ -97,14 +97,15 @@ class Model:
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.5)(x)
         
-        logits = layers.Dense(3, name='logits')(x)
-        outputs = layers.Activation('softmax', dtype='float32', name='softmax_output')(logits)
+        logits = layers.Dense(3, name='logits', kernel_initializer='glorot_uniform')(x)
+        scaled_logits = layers.Lambda(lambda tensor: tensor / 1.5)(logits)
+        outputs = layers.Activation('softmax', dtype='float32', name='softmax_output')(scaled_logits)
 
         self.keras_model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
         stable_loss = tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
-            label_smoothing=0.05
+            label_smoothing=0.02
         )
         
         self.keras_model.compile( 
