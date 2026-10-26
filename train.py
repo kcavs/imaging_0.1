@@ -15,12 +15,13 @@ H = 224
 W = 224
 epochs = 5
 batch_size = 32
+
 global model
 model=Model(IMAGE_DIR,H,W,batch_size)
 model.train()
 model.val()
 model.comp()
-model.fit(40)
+model.fit(100)
 print("Saving trained model weights...")
 model.keras_model.save('lung_cancer.keras')
 print("Model saved successfully!")

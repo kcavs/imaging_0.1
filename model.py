@@ -11,6 +11,8 @@ import numpy as np
 import cv2
 from keras import mixed_precision
 from sklearn.utils.class_weight import compute_class_weight
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+
 
 mixed_precision.set_global_policy('float32')
 
@@ -54,6 +56,7 @@ class Model:
             raise ValueError(f"CRITICAL: Validation found {len(val_classes)} folders instead of 3!")
 
         self.val_ds = raw_val_ds.prefetch(buffer_size=tf.data.AUTOTUNE)
+
     def comp(self):
         from keras import mixed_precision
         mixed_precision.set_global_policy('float32')
@@ -134,7 +137,6 @@ class Model:
             num_images = len(list(class_path.glob('*')))
             class_counts.append(num_images)
             
-            
         total_samples = sum(class_counts)
         num_classes = len(class_names)
 
@@ -148,82 +150,124 @@ class Model:
 
         print(f"Perfected Class Weights (Native Call): {class_weight_dict}")
 
+        callbacks = (
+            EarlyStopping(
+                monitor='val_loss',
+                patience=20,            
+                restore_best_weights=True, 
+                verbose=1
+            ),
+            ModelCheckpoint(
+                filepath='lung_cancer.keras',
+                monitor='val_loss',
+                save_best_only=True,    
+                verbose=1
+            )
+        )
         history = self.keras_model.fit(
             self.train_ds,
             validation_data=self.val_ds,
-            epochs=epochs,
-            class_weight=class_weight_dict  
+            epochs=epochs,          
+            class_weight=class_weight_dict,
+            callbacks=callbacks        
         )
         return history
-
-
-    def grad_cam(self, imgs, intensity=0.5, res=250):
+    def grad_cam(self, imgs, intensity=0.5, res=224):
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet!")
         
-        last_layer_name = None
+        # 1. Target the actual combined output of the last residual block
+        target_layer_name = None
         for layer in reversed(self.keras_model.layers):
-            if "Conv2D" in layer.__class__.__name__: 
-                last_layer_name = layer.name
+            if "add" in layer.name.lower():
+                target_layer_name = layer.name
                 break
                 
-        if not last_layer_name:
-            raise ValueError("Could not find a Conv2D layer in the model.")
-        
-        last_layer = self.keras_model.get_layer(last_layer_name)
+        if not target_layer_name:
+            raise ValueError("Could not find the final addition layer (shortcut) in the model.")
+            
+        conv_layer = self.keras_model.get_layer(target_layer_name)
+        logits_layer = self.keras_model.get_layer('logits')
 
-        grad_model = tf.keras.models.Model( 
-            inputs=[self.keras_model.input], 
-            outputs=[last_layer.output, self.keras_model.get_layer('logits').output] 
-        ) 
+          # 2. Build the gradient model using the exact internal symbolic input tensor
+        grad_model = tf.keras.models.Model(
+            inputs=self.keras_model.input,  # Removed the brackets [] to pass the single structural tensor
+            outputs=[conv_layer.output, logits_layer.output]
+        )
 
+    # 3. Explicitly convert and ensure the batch matches the structural layer layout
+        if isinstance(imgs, tf.Tensor):
+            imgs_tensor = imgs
+        else:
+            imgs_tensor = tf.convert_to_tensor(imgs, dtype=tf.float32)
+
+
+        # 3. CRITICAL: Use training=False to disable RandomFlip/RandomRotation during Grad-CAM!
         with tf.GradientTape() as tape:
-            conv_outputs, predictions = grad_model(imgs)
-            pred_indices = tf.argmax(predictions, axis=-1)
-            batch_indices = tf.range(tf.shape(predictions)[0])
+            conv_outputs, logits_predictions = grad_model(imgs_tensor, training=False)
+            pred_indices = tf.argmax(logits_predictions, axis=-1)
+            
+            batch_indices = tf.range(tf.shape(logits_predictions)[0])
             indices = tf.stack([batch_indices, tf.cast(pred_indices, tf.int32)], axis=1)
-            class_channels = tf.gather_nd(predictions, indices)
+            class_channels = tf.gather_nd(logits_predictions, indices)
 
+        # 4. Compute gradients
         grads = tape.gradient(class_channels, conv_outputs)
         pooled_grads = tf.reduce_mean(grads, axis=(1, 2))
 
         num_imgs = len(imgs)
         fig, axes = plt.subplots(1, num_imgs, figsize=(4 * num_imgs, 4))
         if num_imgs == 1:
-            axes = [axes] 
+            axes = [axes]
+
+          # Calculate the exact crop coordinates to match model.comp()
+        crop_h = int(self.img_height * 0.85)
+        crop_w = int(self.img_width * 0.85)
+        start_y = (self.img_height - crop_h) // 2
+        end_y = start_y + crop_h
+        start_x = (self.img_width - crop_w) // 2
+        end_x = start_x + crop_w
 
         for idx in range(num_imgs):
             img_conv_outputs = conv_outputs[idx]
             img_pooled_grads = pooled_grads[idx]
-            
-            heatmap = img_conv_outputs @ img_pooled_grads[..., tf.newaxis]
-            heatmap = tf.squeeze(heatmap)
 
+            # Element-wise multiply features by weights, then sum along channel axis
+            heatmap = tf.reduce_sum(img_conv_outputs * img_pooled_grads, axis=-1)
             heatmap = tf.maximum(heatmap, 0)
+            
             max_val = tf.math.reduce_max(heatmap)
-            if max_val == 0: 
-                max_val = 1e-10 
-           
-            heatmap = (heatmap / max_val).numpy()
-            heatmap = heatmap.astype(np.float32)  
+            if max_val > 0:
+                heatmap /= max_val
+                
+            heatmap = heatmap.numpy()
+
+            # Handle and prepare the original image format
+            original_img = imgs[idx].numpy() if isinstance(imgs[idx], tf.Tensor) else imgs[idx]
             
-            img_raw = imgs[idx].numpy() if hasattr(imgs[idx], 'numpy') else imgs[idx]
-            if img_raw.max() <= 1.0:
-                img_raw = (img_raw * 255).astype(np.uint8)
+            # CRITICAL FIX: Crop the original image to match the model's receptive field
+            original_img = original_img[start_y:end_y, start_x:end_x, :]
+
+            # Standardize image range to 0-255
+            if original_img.max() <= 1.0:
+                original_img = np.uint8(255 * original_img)
             else:
-                img_raw = img_raw.astype(np.uint8)
+                original_img = np.uint8(original_img)
+                
+            # Now both components share the exact same spatial bounding box
+            original_img = cv2.resize(original_img, (res, res))
+            heatmap = cv2.resize(heatmap, (res, res))
+            heatmap = np.uint8(255 * heatmap)
+            heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
-            height, width = img_raw.shape[0], img_raw.shape[1]
-            heatmap_resized = cv2.resize(heatmap, (width, height))
+            # Superimpose the maps together
+            superimposed_img = cv2.addWeighted(original_img, 1 - intensity, heatmap, intensity, 0)
             
-            heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
-
-            superimposed_img = heatmap_color * intensity + img_raw
-            superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
-
+            # Display the result
             axes[idx].imshow(cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB))
-            axes[idx].set_title(f"Img {idx+1} (Pred: {pred_indices[idx]})", fontsize=10)
             axes[idx].axis('off')
-
+            
+            predicted_index_value = int(pred_indices[idx].numpy())
+            axes[idx].set_title(f"Pred: {self.class_names[predicted_index_value]}")
         plt.tight_layout()
         plt.show()
