@@ -19,9 +19,16 @@ model.comp()
 model_weight_path = 'lung_cancer.keras'
 if os.path.exists(model_weight_path):
     print("Loading pre-trained model weights from disk...")
-    model.keras_model = tf.keras.models.load_model(model_weight_path, safe_mode=False)
+    from model import categorical_focal_loss
+    custom_loss = categorical_focal_loss(gamma=2.5, alpha=1.0)
+    model.keras_model = tf.keras.models.load_model(
+        model_weight_path, 
+        custom_objects={'focal_loss_fixed': custom_loss},
+        safe_mode=False
+    )
 else:
     raise FileNotFoundError(f"Missing weights file at {model_weight_path}. Run train.py first!")
+
 
 test_path = Path(model.data_dir) / 'test'
 test_dataset = tf.keras.utils.image_dataset_from_directory(

@@ -243,7 +243,7 @@ class Model:
             heatmap = cv2.resize(heatmap, (res, res))
             heatmap = np.uint8(255 * heatmap)
             heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-            uperimposed_img = cv2.addWeighted(original_img, 1 - intensity, heatmap, intensity, 0)
+            superimposed_img = cv2.addWeighted(original_img, 1 - intensity, heatmap, intensity, 0)
             axes[idx].imshow(cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB))
             axes[idx].axis('off')
             predicted_index_value = int(pred_indices[idx].numpy())
