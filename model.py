@@ -13,8 +13,15 @@ from keras import mixed_precision
 from sklearn.utils.class_weight import compute_class_weight
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 
-
 mixed_precision.set_global_policy('float32')
+def categorical_focal_loss(gamma=2.0, alpha=0.25):
+    def focal_loss_fixed(y_true, y_pred):
+        y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+        cross_entropy = -y_true * tf.math.log(y_pred)
+        focal_weight = tf.math.pow(1.0 - y_pred, gamma)
+        loss = alpha * focal_weight * cross_entropy
+        return tf.reduce_mean(tf.reduce_sum(loss, axis=-1))
+    return focal_loss_fixed
 
 class Model:
     seed=42
@@ -101,21 +108,17 @@ class Model:
         x = layers.Dropout(0.5)(x)
         
         logits = layers.Dense(3, name='logits', kernel_initializer='glorot_uniform')(x)
-        scaled_logits = layers.Lambda(lambda tensor: tensor / 1.5)(logits)
-        outputs = layers.Activation('softmax', dtype='float32', name='softmax_output')(scaled_logits)
+        outputs = layers.Activation('softmax', dtype='float32', name='softmax_output')(logits)
 
         self.keras_model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
-        stable_loss = tf.keras.losses.CategoricalCrossentropy(
-            from_logits=False,
-            label_smoothing=0.02
+        loss_function = categorical_focal_loss(gamma=2.5, alpha=1.0)
+        self.keras_model.compile(
+            optimizer=ultra_stable_adam,
+            loss=loss_function,
+            metrics=['accuracy']
         )
-        
-        self.keras_model.compile( 
-            optimizer=ultra_stable_adam, 
-            loss=stable_loss, 
-            metrics=['accuracy'] 
-        )
+
 
 
     def predict(self, data, steps=1):
@@ -130,30 +133,25 @@ class Model:
         print("Extracting exact alphanumeric class mapping...")
         class_names = self.class_names
         print(f"Keras Class Mapping Order: {class_names}")
-
-        class_counts = []
-        for class_name in class_names:
-            class_path = Path(self.data_dir) / "train" / class_name
-            num_images = len(list(class_path.glob('*')))
-            class_counts.append(num_images)
-            
-        total_samples = sum(class_counts)
-        num_classes = len(class_names)
-
-        class_weight_dict = {}
-        for class_idx, count in enumerate(class_counts):
-            if count > 0:
-                weight = total_samples / (num_classes * count)
-            else:
-                weight = 1.0  
-            class_weight_dict[int(class_idx)] = float(weight)
-
-        print(f"Perfected Class Weights (Native Call): {class_weight_dict}")
+        
+        y_train = np.concatenate([y for x, y in self.train_ds], axis=0)
+        y_train_indices = np.argmax(y_train, axis=1)
+        
+        from sklearn.utils.class_weight import compute_class_weight
+        unique_classes = np.unique(y_train_indices)
+        weights = compute_class_weight(
+            class_weight='balanced',
+            classes=unique_classes,
+            y=y_train_indices
+        )
+        
+        class_weight_dict = {int(k): float(v) for k, v in zip(unique_classes, weights)}
+        print(f"Perfected Class Weights (Native Sklearn): {class_weight_dict}")
 
         callbacks = (
             EarlyStopping(
                 monitor='val_loss',
-                patience=20,            
+                patience=50,            
                 restore_best_weights=True, 
                 verbose=1
             ),
@@ -176,7 +174,6 @@ class Model:
         if self.keras_model is None:
             raise ValueError("The neural network hasn't been compiled yet!")
         
-        # 1. Target the actual combined output of the last residual block
         target_layer_name = None
         for layer in reversed(self.keras_model.layers):
             if "add" in layer.name.lower():
@@ -189,20 +186,16 @@ class Model:
         conv_layer = self.keras_model.get_layer(target_layer_name)
         logits_layer = self.keras_model.get_layer('logits')
 
-          # 2. Build the gradient model using the exact internal symbolic input tensor
         grad_model = tf.keras.models.Model(
-            inputs=self.keras_model.input,  # Removed the brackets [] to pass the single structural tensor
+            inputs=self.keras_model.input,  
             outputs=[conv_layer.output, logits_layer.output]
         )
 
-    # 3. Explicitly convert and ensure the batch matches the structural layer layout
         if isinstance(imgs, tf.Tensor):
             imgs_tensor = imgs
         else:
             imgs_tensor = tf.convert_to_tensor(imgs, dtype=tf.float32)
 
-
-        # 3. CRITICAL: Use training=False to disable RandomFlip/RandomRotation during Grad-CAM!
         with tf.GradientTape() as tape:
             conv_outputs, logits_predictions = grad_model(imgs_tensor, training=False)
             pred_indices = tf.argmax(logits_predictions, axis=-1)
@@ -211,7 +204,6 @@ class Model:
             indices = tf.stack([batch_indices, tf.cast(pred_indices, tf.int32)], axis=1)
             class_channels = tf.gather_nd(logits_predictions, indices)
 
-        # 4. Compute gradients
         grads = tape.gradient(class_channels, conv_outputs)
         pooled_grads = tf.reduce_mean(grads, axis=(1, 2))
 
@@ -220,7 +212,6 @@ class Model:
         if num_imgs == 1:
             axes = [axes]
 
-          # Calculate the exact crop coordinates to match model.comp()
         crop_h = int(self.img_height * 0.85)
         crop_w = int(self.img_width * 0.85)
         start_y = (self.img_height - crop_h) // 2
@@ -232,7 +223,6 @@ class Model:
             img_conv_outputs = conv_outputs[idx]
             img_pooled_grads = pooled_grads[idx]
 
-            # Element-wise multiply features by weights, then sum along channel axis
             heatmap = tf.reduce_sum(img_conv_outputs * img_pooled_grads, axis=-1)
             heatmap = tf.maximum(heatmap, 0)
             
@@ -242,32 +232,26 @@ class Model:
                 
             heatmap = heatmap.numpy()
 
-            # Handle and prepare the original image format
             original_img = imgs[idx].numpy() if isinstance(imgs[idx], tf.Tensor) else imgs[idx]
-            
-            # CRITICAL FIX: Crop the original image to match the model's receptive field
             original_img = original_img[start_y:end_y, start_x:end_x, :]
-
-            # Standardize image range to 0-255
             if original_img.max() <= 1.0:
                 original_img = np.uint8(255 * original_img)
             else:
                 original_img = np.uint8(original_img)
                 
-            # Now both components share the exact same spatial bounding box
             original_img = cv2.resize(original_img, (res, res))
             heatmap = cv2.resize(heatmap, (res, res))
             heatmap = np.uint8(255 * heatmap)
             heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-
-            # Superimpose the maps together
-            superimposed_img = cv2.addWeighted(original_img, 1 - intensity, heatmap, intensity, 0)
-            
-            # Display the result
+            uperimposed_img = cv2.addWeighted(original_img, 1 - intensity, heatmap, intensity, 0)
             axes[idx].imshow(cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB))
             axes[idx].axis('off')
-            
             predicted_index_value = int(pred_indices[idx].numpy())
-            axes[idx].set_title(f"Pred: {self.class_names[predicted_index_value]}")
+            # Bug fix protection if self.class_names is not populated during app inference
+            if self.class_names is not None:
+                class_lbl = self.class_names[predicted_index_value]
+            else:
+                class_lbl = f"Index {predicted_index_value}"
+                axes[idx].set_title(f"Pred: {class_lbl}")
         plt.tight_layout()
         plt.show()
