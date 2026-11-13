@@ -44,8 +44,8 @@ model.class_names = categories
 print(f"Verified App Class Order Evaluation: {model.class_names}")
 
 for img_batch, lbl_batch in test_dataset.take(1):
-    images = img_batch[:5]       
-    true_labels = lbl_batch[:5]   
+    images = img_batch[:10]       
+    true_labels = lbl_batch[:10]   
     break
 
 predictions = model.predict(tf.convert_to_tensor(images))
